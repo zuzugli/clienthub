@@ -1,0 +1,55 @@
+﻿services:
+
+  # Page web statique servie par Nginx
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"                               # navigateur -> http://localhost:8080
+    volumes:
+      - ./site:/usr/share/nginx/html:ro         # le dossier local site/ est servi par Nginx
+    networks:
+      - clienthub_net
+
+  # API Flask construite à partir de api/Dockerfile
+  api:
+    build: ./api
+    ports:
+      - "5000:5000"                             # http://localhost:5000/health
+    environment:
+      DB_HOST: db                               # nom du service MySQL sur le réseau Docker
+      DB_PORT: "3306"
+      DB_NAME: clienthub
+      DB_USER: clienthub_user
+      DB_PASSWORD: clienthub_pass
+    depends_on:
+      db:
+        condition: service_healthy              # attend que MySQL soit vraiment prêt
+    networks:
+      - clienthub_net
+
+  # Base de données MySQL
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: clienthub
+      MYSQL_USER: clienthub_user
+      MYSQL_PASSWORD: clienthub_pass
+    volumes:
+      - db_data:/var/lib/mysql                                 # volume nommé = persistance
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro     # exécuté au 1er démarrage
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_pass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Pas de "ports" : MySQL n'est pas exposé à l'extérieur, seulement sur le réseau interne
+    networks:
+      - clienthub_net
+
+networks:
+  clienthub_net:
+    driver: bridge
+
+volumes:
+  db_data:
