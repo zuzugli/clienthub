@@ -36,6 +36,14 @@ push main → unit-tests ┐
 
 Si un test échoue, le pipeline s'arrête : l'image n'est ni publiée ni déployée.
 
+## Application déployée sur la VM Azure
+
+Accessible sur l'IP publique : http://40.66.52.118:8015/health
+
+![/health sur la VM](captures/vm-health.png)
+
+![/who sur la VM](captures/vm-who.png)
+
 ## Choix techniques
 
 - **Tests** : `pytest` pour les tests unitaires (client de test Flask) et pour les tests E2E (`requests`), donc un seul outil et une seule commande par type de test.
