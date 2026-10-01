@@ -5,6 +5,7 @@ Application interne ClientHub : une API Flask (`api/`), une base MySQL et une pa
 ## Lancer le projet en local
 
 ```bash
+cp .env.example .env    # puis choisir ses mots de passe MySQL dans .env
 docker compose up -d
 ```
 
@@ -58,3 +59,5 @@ Accessible sur l'IP publique : http://40.66.52.118:8015/health
 |---|---|
 | `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | Identifiants Docker Hub (jeton d'accès) |
 | `VM_HOST` / `VM_USER` / `VM_PASSWORD` | Accès SSH à la VM |
+
+Les mots de passe MySQL sont lus dans un fichier `.env` non versionné (modèle : `.env.example`). En CI, le job E2E génère des mots de passe aléatoires à chaque exécution.
