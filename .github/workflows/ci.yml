@@ -11,7 +11,8 @@ jobs:
 
     env:
       # Nom de l'image sur Docker Hub : <utilisateur>/clienthub-api
-      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/clienthub-api
+      DOCKERHUB_USERNAME: zuzugli
+      IMAGE: zuzugli/clienthub-api
 
     steps:
       # 1. Checkout : récupérer le code de la branche
@@ -54,7 +55,7 @@ jobs:
       - name: Connexion à Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # 6. Pousser l'image sur le registry (les deux tags)
