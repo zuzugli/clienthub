@@ -23,8 +23,15 @@ def get_connection():
         password=DB_PASSWORD,
         database=DB_NAME,
         charset="utf8mb4",
+        connect_timeout=5,
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+@app.errorhandler(pymysql.MySQLError)
+def database_unavailable(error):
+    """Si MySQL est injoignable, renvoyer une erreur claire au lieu de planter."""
+    return jsonify({"error": "base de données indisponible"}), 503
 
 
 def init_db():

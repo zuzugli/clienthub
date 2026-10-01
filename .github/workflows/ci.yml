@@ -5,37 +5,76 @@ on:
   push:
     branches: [main]
 
+env:
+  # Nom de l'image sur Docker Hub : <utilisateur>/clienthub-api
+  IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/clienthub-api
+  # Nom fixe du conteneur sur la VM (déploiement idempotent)
+  CONTAINER_NAME: gliniak_zuzanna
+  # Port attribué sur la VM
+  APP_PORT: 8015
+
 jobs:
-  build-test-push:
+
+  # ---------- Job 1 : tests unitaires ----------
+  unit-tests:
     runs-on: ubuntu-latest
-
-    env:
-      # Nom de l'image sur Docker Hub : <utilisateur>/clienthub-api
-      DOCKERHUB_USERNAME: zuzugli
-      IMAGE: zuzugli/clienthub-api
-
     steps:
-      # 1. Checkout : récupérer le code de la branche
       - name: Checkout de la branche
         uses: actions/checkout@v4
 
-      # 2. Exécuter les tests
       - name: Installer Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Lancer les tests
+      - name: Installer les dépendances
         working-directory: api
-        run: |
-          pip install -r requirements.txt pytest
-          pytest -v
+        run: pip install -r requirements.txt pytest
 
-      # 3. Construire l'image avec deux tags : latest + SHA du commit
-      - name: Build de l'image Docker
+      - name: Lancer les tests unitaires
+        working-directory: api
+        run: pytest -v
+
+  # ---------- Job 2 : tests E2E ----------
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout de la branche
+        uses: actions/checkout@v4
+
+      - name: Démarrer l'application complète (API + MySQL + Nginx)
+        run: docker compose up -d --build
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances E2E
+        run: pip install -r e2e/requirements.txt
+
+      - name: Lancer les tests E2E
+        run: pytest -v e2e
+
+      - name: Afficher les logs en cas d'échec
+        if: failure()
+        run: docker compose logs
+
+      - name: Arrêter l'application
+        if: always()
+        run: docker compose down -v
+
+  # ---------- Job 3 : build & push Docker Hub ----------
+  build-push:
+    needs: [unit-tests, e2e-tests]        # uniquement si les jobs 1 et 2 sont OK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout de la branche
+        uses: actions/checkout@v4
+
+      - name: Build de l'image Docker (tags latest + SHA du commit)
         run: docker build -t $IMAGE:latest -t $IMAGE:${{ github.sha }} ./api
 
-      # 4. Lancer rapidement le conteneur et vérifier /health
       - name: Lancer le conteneur et tester /health
         run: |
           docker run -d --name api-test -p 5000:5000 $IMAGE:latest
@@ -51,15 +90,46 @@ jobs:
           docker logs api-test
           exit 1
 
-      # 5. Se connecter à Docker Hub (avant le push)
       - name: Connexion à Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 6. Pousser l'image sur le registry (les deux tags)
       - name: Push de l'image sur Docker Hub
         run: |
           docker push $IMAGE:latest
           docker push $IMAGE:${{ github.sha }}
+
+  # ---------- Job 4 : déploiement sur la VM Azure ----------
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déployer sur la VM via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          password: ${{ secrets.VM_PASSWORD }}
+          script: |
+            set -e
+            # Récupérer l'image exacte de ce commit depuis Docker Hub
+            docker pull ${{ env.IMAGE }}:${{ github.sha }}
+            # Supprimer l'ancien conteneur s'il existe (idempotent : jamais de doublon)
+            docker rm -f ${{ env.CONTAINER_NAME }} || true
+            # Relancer l'application avec un nom fixe
+            docker run -d --name ${{ env.CONTAINER_NAME }} --restart unless-stopped \
+              -p ${{ env.APP_PORT }}:5000 ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Vérifier que l'application répond sur l'IP publique
+        run: |
+          for i in $(seq 1 15); do
+            if curl -sf http://${{ secrets.VM_HOST }}:${{ env.APP_PORT }}/health | grep -q '"status":"ok"'; then
+              echo "Application en ligne sur la VM"
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "L'application ne répond pas sur la VM"
+          exit 1
